@@ -1,0 +1,175 @@
+---
+title: "KAGGLE_FINAL"
+output: html_notebook
+---
+
+### KNN MODELING
+1. Standardizing data for KNN & setting our target variable as categorical
+```{r}
+Train <- read.csv("FlightTrainNew1.csv")
+Test <- read.csv("FlightTestNoYNew1.csv")
+Train$Cancelled <- as.factor(Train$Cancelled)
+
+data_OG <- Train
+
+# Removing rows with more than 50% NAs
+NA_cols = c()
+for(i in 1:ncol(data_OG)) {
+  if(sum(is.na(data_OG[[i]])) > (.5 * nrow(data_OG))) NA_cols = c(NA_cols, i)
+}
+
+length(NA_cols)
+data_NAfree = data_OG[,-NA_cols]
+
+Train <- data_NAfree
+
+# Standardizing data
+Train$SCHEDULED_DEPARTURE <- scale(Train$SCHEDULED_DEPARTURE)
+Train$SCHEDULED_ARRIVAL <- scale(Train$SCHEDULED_ARRIVAL)
+Train$SCHEDULED_TIME <- scale(Train$SCHEDULED_TIME)
+
+Train$Org_airport_lat <- scale(Train$Org_airport_lat)
+Train$Org_airport_long <- scale(Train$Org_airport_long)
+Train$Dest_airport_lat <- scale(Train$Dest_airport_lat)
+Train$Dest_airport_long <- scale(Train$Dest_airport_long)
+
+Test$SCHEDULED_DEPARTURE <- scale(Test$SCHEDULED_DEPARTURE)
+Test$SCHEDULED_ARRIVAL <- scale(Test$SCHEDULED_ARRIVAL)
+Test$SCHEDULED_TIME <- scale(Test$SCHEDULED_TIME)
+
+Test$Org_airport_lat <- scale(Test$Org_airport_lat)
+Test$Org_airport_long <- scale(Test$Org_airport_long)
+Test$Dest_airport_lat <- scale(Test$Dest_airport_lat)
+Test$Dest_airport_long <- scale(Test$Dest_airport_long)
+```
+
+2. knn model using Org_airport_lat, Org_airport_long, Dest_airport_lat, Dest_airport_long, SCHEDULED_DEPARTURE, SCHEDULED_TIME, SCHEDULED_ARRIVAL, MONTH, DAY. k=1.
+model using Org_airport_lat, Org_airport_long, Dest_airport_lat, Dest_airport_long, SCHEDULED_DEPARTURE, SCHEDULED_TIME, MONTH gave us the same accuracy rate (100%)
+```{r}
+library(class)
+# Gives us training data accuracy
+model.train <- knn(Train[,c(14:19, 24:26)], Train[,c(14:19, 24:26)], cl=Train[,28],k=1)
+a1 <- table(Train[,28],model.train)
+a1
+
+model.train <- knn(Train[,c(14:19, 24:26)], Test[,c(14:19, 24:26)], cl=Train[,28],k=1)
+```
+
+```{r}
+library(caret)
+library(e1071)
+trctrl <- trainControl(method="repeatedcv", number=5)
+knn_fit <- train(Cancelled ~ Org_airport_lat + Org_airport_long +
+                   Dest_airport_lat + Dest_airport_long +
+                   SCHEDULED_DEPARTURE + SCHEDULED_TIME + SCHEDULED_ARRIVAL +
+                   MONTH + DAY, data=Train, method="knn",
+                 tuneGrid   = expand.grid(k = 1),
+                 trControl=trctrl, metric="Accuracy")
+
+```
+```{r}
+tt <- data.frame(knn_fit[4])
+plot(tt[,1], tt[,2], type="b", col="blue", xlab="k Nearest Neighbor", ylab="Accuracy")
+knn_fit
+
+```
+
+3. Changes based on looking through the data (Linus' five variables and DIVERTED)
+```{r}
+# First, check if air_system_delay leads to cancellations
+table(Train$Cancelled[Train$AIR_SYSTEM_DELAY != 0])
+# When air_system_delay != 0, flight NOT CANCELLED
+
+# Next, check security_delay
+table(Train$Cancelled[Train$SECURITY_DELAY != 0])
+# When security_delay != 0, flight NOT CANCELLED
+
+# Check for late_aircraft_delay
+table(Train$LATE_AIRCRAFT_DELAY)
+table(Train$Cancelled[Train$LATE_AIRCRAFT_DELAY != 0])
+# When late_aircraft_delay != 0, flight NOT CANCELLED
+
+# Check for weather_delay
+table(Train$Cancelled[Train$WEATHER_DELAY != 0])
+# When weather_delay != 0, flight NOT CANCELLED
+
+# Check for airline_delay
+table(Train$Cancelled[Train$AIRLINE_DELAY != 0])
+# When airline_delay != 0, flight NOT CANCELLED
+
+# Make these changes to Chaeyoung's submission
+ASD_holder = which(Test$AIR_SYSTEM_DELAY != 0)
+SD_holder = which(Test$SECURITY_DELAY != 0)
+LAD_holder = which(Test$LATE_AIRCRAFT_DELAY != 0)
+WD_holder = which(Test$WEATHER_DELAY != 0)
+AD_holder = which(Test$AIRLINE_DELAY != 0)
+DI_holder = which(Test$DIVERTED != 0)
+
+# Check number of fixes
+length(unique(c(ASD_holder, SD_holder, LAD_holder, WD_holder, AD_holder, DI_holder)))
+# 4476 possible fixes
+
+all_fixes = unique(c(ASD_holder, SD_holder, LAD_holder, WD_holder, AD_holder, DI_holder))
+```
+
+4. Outputting to a csv file
+```{r}
+Ob <- c(1:29668)
+Cancelled <- as.character(model.1)
+sol <- cbind(Ob, Cancelled)
+table(Cancelled)
+
+write.csv(sol, "sol.csv", row.names = FALSE)
+best = read.csv("sol.csv")
+# Check how many possible fixes there are
+table(best$Cancelled[all_fixes])
+# There are 184 possible "NO"s
+best$Cancelled[all_fixes] = "NO"
+
+# Check distribution
+table(best$Cancelled)
+
+write.csv(best, "sol2.csv", row.names = FALSE)
+```
+
+### RANDOMFOREST
+```{r}
+library(randomForest)
+set.seed(1)
+
+bag=randomForest(Cancelled~Org_airport_lat + Org_airport_long + Dest_airport_lat + Dest_airport_long + SCHEDULED_DEPARTURE + SCHEDULED_TIME + SCHEDULED_ARRIVAL + MONTH + DAY,data=Train,mtry=19,importance=TRUE)
+summary(bag)
+plot(bag)
+print(bag)
+```
+
+```{R}
+model.1 <- predict(bag, newdata=Test)
+Ob <- c(1:29668)
+Cancelled <- as.character(model.1)
+sol <- cbind(Ob, Cancelled)
+table(Cancelled)
+
+write.csv(sol, "sol.csv", row.names = FALSE)
+
+# best = read.csv("sol.csv")
+# # Check how many possible fixes there are
+# table(best$Cancelled[all_fixes])
+# # There are 184 possible "NO"s
+# best$Cancelled[all_fixes] = "NO"
+# 
+# # Check distribution
+# table(best$Cancelled)
+# 
+# write.csv(best, "sol2.csv", row.names = FALSE)
+```
+
+```{r}
+library(gbm)
+set.seed(1)
+Train$Cancelled <- ifelse(Train$Cancelled=="YES", 1,0)
+boost <- gbm(Cancelled~Org_airport_lat + Org_airport_long + Dest_airport_lat + Dest_airport_long + SCHEDULED_DEPARTURE + SCHEDULED_TIME + SCHEDULED_ARRIVAL + MONTH + DAY,data=Train,distribution="bernoulli")
+p.boost <- predict(boost, newdata=Train, type="response")
+p.boost1 <- ifelse(p.boost<0.5,0,1)
+table(Train$Cancelled, p.boost1)
+```
